@@ -68,19 +68,21 @@ def build_precision_graph(data, y_cols, title):
         # --- GHOST POINT INTERPOLATION ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Date'], gdf.iloc[i+1]['Date']
-            if (d2 - d1).days > 1:
-                gap_start, gap_end = d1 + timedelta(days=1), d2
+            
+            # Now subtracting integers, so no .days needed
+            if (d2 - d1) > 1: 
+                gap_start, gap_end = d1 + 1, d2
                 fig.add_vline(x=gap_start, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 fig.add_vline(x=gap_end, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 
                 ghost_row = {'Date': gap_start, 'Group': group_name}
-                break_row = {'Date': gap_start + timedelta(minutes=1), 'Group': group_name}
+                # Use a tiny decimal offset instead of a timedelta to force the line break
+                break_row = {'Date': gap_start + 0.001, 'Group': group_name} 
                 for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1).days
+                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1)
                     ghost_row[col] = gdf.iloc[i][col] + slope
                     break_row[col] = None
                 plot_data = pd.concat([plot_data, pd.DataFrame([ghost_row, break_row])], ignore_index=True)
-
         plot_data = plot_data.sort_values('Date')
 
         for col in y_cols:
