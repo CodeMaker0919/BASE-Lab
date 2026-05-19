@@ -19,24 +19,40 @@ COLORS = {
 st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_clean_data():
     try:
         res = requests.get(SHEET_URL)
         xls = pd.read_excel(io.BytesIO(res.content), sheet_name=None, engine='openpyxl')
         all_df = []
+        
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
                 temp_df.columns = temp_df.columns.str.strip()
+                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
+                
+                # 1. Find the true start date (Row 1) BEFORE filtering out the muck
+                if not temp_df['Date'].dropna().empty:
+                    true_start_date = temp_df['Date'].dropna().min()
+                else:
+                    continue
+                
+                # 2. Filter out the muck notes now
                 if 'Notes' in temp_df.columns:
                     temp_df = temp_df[~temp_df['Notes'].astype(str).str.contains('Muck', na=False, case=False)]
-                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
+                
                 temp_df['Real 450nm'] = pd.to_numeric(temp_df['Real 450nm'], errors='coerce')
                 temp_df['Real 750nm'] = pd.to_numeric(temp_df['Real 750nm'], errors='coerce')
                 temp_df = temp_df.dropna(subset=['Date', 'Real 450nm']).query('`Real 450nm` > 0')
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
+                
+                # 3. Swap the X-axis column from Date to relative Day integers (Day 1, Day 2, etc.)
+                temp_df['Date'] = (temp_df['Date'] - true_start_date).dt.days + 1
+                
                 temp_df['Group'] = name
                 all_df.append(temp_df)
+                
         return pd.concat(all_df) if all_df else pd.DataFrame()
     except Exception: return pd.DataFrame()
 
@@ -109,7 +125,12 @@ def build_precision_graph(data, y_cols, title):
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
         template="plotly_white", showlegend=False, height=750,
         margin=dict(r=220, l=60, t=100, b=60),
-        xaxis=dict(showgrid=False, linecolor="#94a3b8"),
+        xaxis=dict(
+            showgrid=False, 
+            linecolor="#94a3b8",
+            tickprefix="Day ",  # Adds "Day " before the number
+            dtick=1            # Ensures it steps by individual days
+        ),
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
