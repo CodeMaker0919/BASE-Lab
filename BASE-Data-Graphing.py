@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import io
-from datetime import timedelta
 
 # --- CONFIG ---
 SHEET_ID = "1-rg8dp5_PMRO83Z_sISVTRIbToui0ea1ZnAXsE_KHFA"
@@ -26,99 +25,105 @@ def get_clean_data():
         all_df = []
         global_start_date = None
         
+        # 1. Establish the True Baseline Timeline Start
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
                 temp_df.columns = temp_df.columns.str.strip()
-                
-                # --- Find Global Start Date (Before filtering 'Muck') ---
                 raw_dates = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize().dropna()
                 if not raw_dates.empty:
                     sheet_min = raw_dates.min()
                     if global_start_date is None or sheet_min < global_start_date:
                         global_start_date = sheet_min
 
-                # --- Filter and Clean ---
+        # 2. Extract and Process Clean Observations
+        for name in GROUPS:
+            if name in xls:
+                temp_df = xls[name].copy()
+                temp_df.columns = temp_df.columns.str.strip()
+                
                 if 'Notes' in temp_df.columns:
                     temp_df = temp_df[~temp_df['Notes'].astype(str).str.contains('Muck', na=False, case=False)]
                 
                 temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
                 temp_df['Real 450nm'] = pd.to_numeric(temp_df['Real 450nm'], errors='coerce')
                 temp_df['Real 750nm'] = pd.to_numeric(temp_df['Real 750nm'], errors='coerce')
+                
                 temp_df = temp_df.dropna(subset=['Date', 'Real 450nm']).query('`Real 450nm` > 0')
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
                 temp_df['Group'] = name
+                
+                # Pre-calculate relative experiment timeline day
+                temp_df['Day'] = (temp_df['Date'] - global_start_date).dt.days + 1
                 all_df.append(temp_df)
                 
         return (pd.concat(all_df) if all_df else pd.DataFrame()), global_start_date
-    except Exception: return pd.DataFrame(), None
+    except Exception: 
+        return pd.DataFrame(), None
 
-def build_precision_graph(data, y_cols, title, start_date):
-    if isinstance(y_cols, str): y_cols = [y_cols]
+def build_precision_graph(data, y_cols, title):
+    if isinstance(y_cols, str): 
+        y_cols = [y_cols]
+        
     fig = go.Figure()
     label_positions = []
 
-    # --- Convert absolute Dates to relative Days (e.g. May 7 = Day 1) ---
-    plot_data_master = data.copy()
-    plot_data_master['Day'] = (plot_data_master['Date'] - start_date).dt.days + 1
-
-    for group_name in plot_data_master['Group'].unique():
-        gdf = plot_data_master[plot_data_master['Group'] == group_name].sort_values('Day')
+    for group_name in data['Group'].unique():
+        gdf = data[data['Group'] == group_name].sort_values('Day')
+        if gdf.empty:
+            continue
+            
         plot_data = gdf.copy()
+        ghost_rows = []
 
-        # --- GAP & DEAD ZONE LOGIC ---
+        # --- REFACTORED GAP & DEAD ZONE LOGIC ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
             
             if gap_days > 1:
-                # 1. Draw vertical dotted lines for every missing day
+                # Add historical grid boundary lines for missing periods
                 for day_offset in range(1, gap_days):
-                    missing_day = d1 + day_offset
-                    fig.add_vline(x=missing_day, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+                    fig.add_vline(x=d1 + day_offset, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 
-                # 2. If the gap is wide enough to have space BETWEEN dotted lines
+                # Segment tracking data breaks
                 if gap_days > 2:
-                    ghost_rows = []
+                    ghost_start = {'Day': d1 + 1, 'Group': group_name}
+                    ghost_break = {'Day': d1 + 1.1, 'Group': group_name}
+                    ghost_end = {'Day': d2 - 1, 'Group': group_name}
+                    
                     for col in y_cols:
                         slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
-                        
-                        # Point A: Stop at the first dotted line
-                        ghost_start = {'Day': d1 + 1, 'Group': group_name}
                         ghost_start[col] = gdf.iloc[i][col] + slope
-                        
-                        # Point B: Break the line so it disappears in the "Dead Zone"
-                        break_row = {'Day': d1 + 1.1, 'Group': group_name}
-                        break_row[col] = None
-                        
-                        # Point C: Resume at the last dotted line
-                        ghost_end = {'Day': d2 - 1, 'Group': group_name}
+                        ghost_break[col] = None  # Forces breaking the visual line path
                         ghost_end[col] = gdf.iloc[i+1][col] - slope
                         
-                        ghost_rows.extend([ghost_start, break_row, ghost_end])
-                    
-                    plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
+                    ghost_rows.extend([ghost_start, ghost_break, ghost_end])
 
+        if ghost_rows:
+            plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
+        
         plot_data = plot_data.sort_values('Day')
 
+        # --- RENDER DATA LAYERS ---
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Trace 1: The continuous lines (includes breaks and slopes from plot_data)
+            # Line Segments (accounts for breaks via None insertions)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Trace 2: The dots ONLY on real recorded data days (using gdf)
+            # Real Recorded Samples (Dots)
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
-            # Store label info for de-cluttering later
+            # Compute Change Metrics for End Annotations
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
@@ -128,10 +133,13 @@ def build_precision_graph(data, y_cols, title, start_date):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- DE-CLUTTERING LOGIC (Collision Detection) ---
+    # --- ADJUST LABELS FOR CLARITY ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
-        min_distance = 0.08  
+        # Dynamic tracking buffer based on the range of active visible items
+        y_vals = [lp['y'] for lp in label_positions]
+        y_range = max(y_vals) - min(y_vals) if len(y_vals) > 1 else 1.0
+        min_distance = max(0.05, y_range * 0.08)
         
         for i in range(1, len(label_positions)):
             prev_y = label_positions[i-1]['y']
@@ -148,26 +156,38 @@ def build_precision_graph(data, y_cols, title, start_date):
 
     fig.update_layout(
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
-        template="plotly_white", showlegend=False, height=750,
+        template="plotly_white", showlegend=False, height=600,
         margin=dict(r=220, l=60, t=100, b=60),
         xaxis=dict(showgrid=False, linecolor="#94a3b8", tickprefix="Day ", dtick=1),
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
 
-# --- RENDER ---
+# --- STREAMLIT UI LAYOUT ---
 df_master, global_start = get_clean_data()
+
 if not df_master.empty and global_start:
-    st.title("Algae Lab Growth Analysis")
-    st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)", global_start), use_container_width=True)
-    st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)", global_start), use_container_width=True)
-    st.divider()
-    for group in GROUPS:
-        gdf_group = df_master[df_master['Group'] == group]
-        if not gdf_group.empty:
-            st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", global_start), use_container_width=True)
-    if st.sidebar.button("Sync Live Data"):
-        st.cache_data.clear()
-        st.rerun()
+    st.title("🌱 Algae Lab Growth Analysis")
+    
+    # Structural presentation views
+    tab1, tab2 = st.tabs(["📊 Consolidated Overview", "🔍 Deep-Dive Segmentations"])
+    
+    with tab1:
+        st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
+        st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
+        
+    with tab2:
+        for group in GROUPS:
+            gdf_group = df_master[df_master['Group'] == group]
+            if not gdf_group.empty:
+                st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}"), use_container_width=True)
+                
+    # Sidebar control actions
+    with st.sidebar:
+        st.markdown("### Controls")
+        if st.button("🔄 Sync Live Data", use_container_width=True):
+            st.cache_data.clear()
+            st.sidebar.success("Cache Cleared!")
+            st.rerun()
 else:
-    st.error("No data found. Check permissions.")
+    st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
