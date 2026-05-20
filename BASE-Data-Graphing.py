@@ -60,9 +60,18 @@ def build_precision_graph(data, y_cols, title):
                 ghost_row = {'Date': gap_start, 'Group': group_name}
                 break_row = {'Date': gap_start + timedelta(minutes=1), 'Group': group_name}
                 for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1).days
-                    ghost_row[col] = gdf.iloc[i][col] + slope
-                    break_row[col] = None
+                    color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
+                    # 1. Draw the continuous lines (includes your slope and line breaks from plot_data)
+                    fig.add_trace(go.Scatter(
+                        x=plot_data['Date'], y=plot_data[col], mode='lines',
+                        line=dict(color=color, width=4),
+                        connectgaps=False
+                    ))
+                    # 2. Draw the dots ONLY on real data days (using gdf)
+                    fig.add_trace(go.Scatter(
+                        x=gdf['Date'], y=gdf[col], mode='markers',
+                        marker=dict(color=color, size=10, line=dict(width=2, color="white"))
+                    ))
                 plot_data = pd.concat([plot_data, pd.DataFrame([ghost_row, break_row])], ignore_index=True)
 
         plot_data = plot_data.sort_values('Date')
