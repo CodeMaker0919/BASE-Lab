@@ -167,10 +167,10 @@ def build_precision_graph(data, y_cols, title):
 df_master, global_start = get_clean_data()
 
 if not df_master.empty and global_start:
-    st.title("🌱 Algae Lab Growth Analysis")
+    st.title("Algae Lab Growth Analysis")
     
     # Structural presentation views
-    tab1, tab2 = st.tabs(["📊 Consolidated Overview", "🔍 Deep-Dive Segmentations"])
+    tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
     
     with tab1:
         st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
@@ -185,7 +185,7 @@ if not df_master.empty and global_start:
     # Sidebar control actions
     with st.sidebar:
         st.markdown("### Controls")
-        if st.button("🔄 Sync Live Data", use_container_width=True):
+        if st.button("Sync Live Data", use_container_width=True):
             st.cache_data.clear()
             st.sidebar.success("Cache Cleared!")
             st.rerun()
