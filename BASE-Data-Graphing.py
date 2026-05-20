@@ -68,15 +68,21 @@ def build_precision_graph(data, y_cols, title):
     fig = go.Figure()
     label_positions = []
 
-    # --- FIX 1: GLOBAL DOTTED LINES ---
-    # Find all missing days across the entire experiment, regardless of group
-    all_recorded_days = set(data['Day'].dropna().unique())
-    if all_recorded_days:
-        min_day, max_day = int(min(all_recorded_days)), int(max(all_recorded_days))
-        missing_days = [d for d in range(min_day, max_day + 1) if d not in all_recorded_days]
-        
-        for md in missing_days:
-            fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+    # --- FIX 1: COLLECT ALL UNIQUE MISSING DAYS ACROSS GROUPS ---
+    # If ANY group misses a day within its sequence, we add a dotted line for it.
+    missing_verticals = set()
+    for group_name in data['Group'].unique():
+        gdf = data[data['Group'] == group_name].sort_values('Day')
+        for i in range(len(gdf) - 1):
+            d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
+            gap = int(d2 - d1)
+            if gap > 1:
+                for offset in range(1, gap):
+                    missing_verticals.add(int(d1 + offset))
+                    
+    # Draw the dotted lines (this will correctly draw 4, 5, 10, 11)
+    for md in missing_verticals:
+        fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
     # Calculate global Y range for label collision logic
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
@@ -96,7 +102,6 @@ def build_precision_graph(data, y_cols, title):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
             
-            # Segment tracking data breaks (Vertical lines are now handled globally above)
             if gap_days > 2:
                 ghost_start = {'Day': d1 + 1, 'Group': group_name}
                 ghost_break = {'Day': d1 + 1.1, 'Group': group_name}
@@ -105,7 +110,8 @@ def build_precision_graph(data, y_cols, title):
                 for col in y_cols:
                     slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
                     ghost_start[col] = gdf.iloc[i][col] + slope
-                    ghost_break[col] = None  # Forces breaking the visual line path
+                    # Using float('nan') ensures Plotly visually breaks the line
+                    ghost_break[col] = float('nan')  
                     ghost_end[col] = gdf.iloc[i+1][col] - slope
                     
                 ghost_rows.extend([ghost_start, ghost_break, ghost_end])
@@ -119,7 +125,7 @@ def build_precision_graph(data, y_cols, title):
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Line Segments (accounts for breaks via None insertions)
+            # Line Segments 
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
@@ -143,19 +149,21 @@ def build_precision_graph(data, y_cols, title):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- FIX 2: ADJUST LABELS FOR CLARITY ---
+    # --- FIX 2: ITERATIVE LABEL REPELLER ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         
-        # Scale the buffer distance dynamically to 8% of the chart's total Y height 
-        # with an absolute floor so they never crush together
+        # Ensure at least 8% of the chart height exists between labels
         min_distance = max(0.12, y_range * 0.08) 
         
-        for i in range(1, len(label_positions)):
-            prev_y = label_positions[i-1]['y']
-            curr_y = label_positions[i]['y']
-            if curr_y - prev_y < min_distance:
-                label_positions[i]['y'] = prev_y + min_distance
+        # Iteratively push labels apart from the center so they don't drift off-screen
+        for _ in range(10): 
+            for i in range(len(label_positions) - 1):
+                diff = label_positions[i+1]['y'] - label_positions[i]['y']
+                if diff < min_distance:
+                    overlap = min_distance - diff
+                    label_positions[i]['y'] -= overlap / 2
+                    label_positions[i+1]['y'] += overlap / 2
 
         for lp in label_positions:
             fig.add_annotation(
@@ -172,7 +180,6 @@ def build_precision_graph(data, y_cols, title):
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
-
 # --- STREAMLIT UI LAYOUT ---
 df_master, global_start = get_clean_data()
 
