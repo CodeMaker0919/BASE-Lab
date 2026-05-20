@@ -68,27 +68,26 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     fig = go.Figure()
     label_positions = []
 
-    # Use master dataset if provided, fallback to scoped dataset if not
+    # Use master dataset to figure out the true global missing days
     timeline_source = master_data if master_data is not None else data
 
-    # --- FIX 1: TIMELINE ANALYSIS ENGINE ---
-    # Scans the global timeline to catch all individual group sequence gaps
-    missing_verticals = set()
-    if not timeline_source.empty:
-        for group_name in timeline_source['Group'].unique():
-            gdf = timeline_source[timeline_source['Group'] == group_name].sort_values('Day')
-            for i in range(len(gdf) - 1):
-                d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
-                gap = int(d2 - d1)
-                if gap > 1:
-                    for offset in range(1, gap):
-                        missing_verticals.add(int(d1 + offset))
-                        
-    # Draw standardized dotted interval bounds
-    for md in missing_verticals:
+    if timeline_source.empty:
+        return fig
+
+    # --- NEW GLOBAL TIMELINE ANALYSIS ---
+    min_day = int(timeline_source['Day'].min())
+    max_day = int(timeline_source['Day'].max())
+    all_possible_days = set(range(min_day, max_day + 1))
+    
+    # A day is only considered "collected" if ANY group successfully has a data point on it
+    collected_days = set(timeline_source['Day'].dropna().unique())
+    missing_days = all_possible_days - collected_days
+
+    # Draw the global dotted vertical lines for completely missed lab days
+    for md in sorted(missing_days):
         fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
-    # Calculate global scale boundaries for smart layout metrics
+    # Calculate global scale boundaries for label adjustments
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
     y_range = y_max - y_min if pd.notna(y_max) and pd.notna(y_min) else 1.0
@@ -97,52 +96,32 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         gdf = data[data['Group'] == group_name].sort_values('Day')
         if gdf.empty:
             continue
-            
-        plot_data = gdf.copy()
-        ghost_rows = []
-
-        # --- BREAK PATH INTERPOLATION LOGIC ---
-        for i in range(len(gdf) - 1):
-            d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
-            gap_days = int(d2 - d1)
-            
-            if gap_days > 2:
-                ghost_start = {'Day': d1 + 1, 'Group': group_name}
-                ghost_break = {'Day': d1 + 1.1, 'Group': group_name}
-                ghost_end = {'Day': d2 - 1, 'Group': group_name}
-                
-                for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
-                    ghost_start[col] = gdf.iloc[i][col] + slope
-                    ghost_break[col] = float('nan')  # Generates clean break vector paths
-                    ghost_end[col] = gdf.iloc[i+1][col] - slope
-                    
-                ghost_rows.extend([ghost_start, ghost_break, ghost_end])
-
-        if ghost_rows:
-            plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
         
-        plot_data = plot_data.sort_values('Day')
+        # --- AUTOMATIC LINE BREAKING VIA REINDEXING ---
+        # Reindexing introduces standard NaNs on missing days, forcing Plotly to break the trends cleanly
+        full_day_range = range(int(gdf['Day'].min()), int(gdf['Day'].max()) + 1)
+        plot_data = gdf.set_index('Day').reindex(full_day_range).reset_index()
+        plot_data['Group'] = group_name
 
         # --- DATA VECTOR RENDERING ---
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Group trend lines
+            # Continuous line segments (breaks dynamically over missing global days due to Reindexed NaNs)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Sample collection indicators
+            # Sample dots (drawn only on the clean real rows to prevent blank hover shapes)
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
-            # Metric analysis tracking bounds
+            # End Annotations Calculation
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
@@ -152,12 +131,11 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- FIX 2: BI-DIRECTIONAL FORCE LABELS ---
+    # --- BI-DIRECTIONAL FORCE LABELS ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
         
-        # Iteratively distribute labels away from tight clusters
         for _ in range(15): 
             for i in range(len(label_positions) - 1):
                 diff = label_positions[i+1]['y'] - label_positions[i]['y']
@@ -191,7 +169,6 @@ if not df_master.empty and global_start:
     tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
     
     with tab1:
-        # Pass df_master as normal
         st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
         st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
         
@@ -199,7 +176,6 @@ if not df_master.empty and global_start:
         for group in GROUPS:
             gdf_group = df_master[df_master['Group'] == group]
             if not gdf_group.empty:
-                # FIX: We explicitly pass df_master here so deep dives know where all global missing days are!
                 st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
                 
     with st.sidebar:
