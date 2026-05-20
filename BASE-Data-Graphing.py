@@ -146,7 +146,7 @@ def build_precision_graph(data, y_cols, title):
             tickprefix="Day ",  
             dtick=1             
         ),
-        yaxis=dict(gridcolor="#334155", title="Absorbance Units")
+        yaxis=dict(gridcolor="#FFFFFF", title="Absorbance Units")
     )
     return fig
 
