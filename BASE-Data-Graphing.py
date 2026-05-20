@@ -134,16 +134,19 @@ def build_precision_graph(data, y_cols, title):
             )
 
     fig.update_layout(
-        title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
-        template="plotly_white", showlegend=False, height=750,
+        title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="white")), # Make title white
+        template="plotly_dark", # Change from plotly_white to plotly_dark
+        paper_bgcolor="#0f172a", # A rich, solid dark slate color
+        plot_bgcolor="#0f172a",  # A rich, solid dark slate color
+        showlegend=False, height=750,
         margin=dict(r=220, l=60, t=100, b=60),
         xaxis=dict(
             showgrid=False, 
-            linecolor="#94a3b8",
+            linecolor="#64748b",
             tickprefix="Day ",  
             dtick=1             
         ),
-        yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
+        yaxis=dict(gridcolor="#334155", title="Absorbance Units")
     )
     return fig
 
