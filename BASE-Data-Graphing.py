@@ -61,30 +61,34 @@ def get_clean_data():
     except Exception: 
         return pd.DataFrame(), None
 
-def build_precision_graph(data, y_cols, title):
+def build_precision_graph(data, y_cols, title, master_data=None):
     if isinstance(y_cols, str): 
         y_cols = [y_cols]
         
     fig = go.Figure()
     label_positions = []
 
-    # --- FIX 1: COLLECT ALL UNIQUE MISSING DAYS ACROSS GROUPS ---
-    # If ANY group misses a day within its sequence, we add a dotted line for it.
+    # Use master dataset if provided, fallback to scoped dataset if not
+    timeline_source = master_data if master_data is not None else data
+
+    # --- FIX 1: TIMELINE ANALYSIS ENGINE ---
+    # Scans the global timeline to catch all individual group sequence gaps
     missing_verticals = set()
-    for group_name in data['Group'].unique():
-        gdf = data[data['Group'] == group_name].sort_values('Day')
-        for i in range(len(gdf) - 1):
-            d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
-            gap = int(d2 - d1)
-            if gap > 1:
-                for offset in range(1, gap):
-                    missing_verticals.add(int(d1 + offset))
-                    
-    # Draw the dotted lines (this will correctly draw 4, 5, 10, 11)
+    if not timeline_source.empty:
+        for group_name in timeline_source['Group'].unique():
+            gdf = timeline_source[timeline_source['Group'] == group_name].sort_values('Day')
+            for i in range(len(gdf) - 1):
+                d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
+                gap = int(d2 - d1)
+                if gap > 1:
+                    for offset in range(1, gap):
+                        missing_verticals.add(int(d1 + offset))
+                        
+    # Draw standardized dotted interval bounds
     for md in missing_verticals:
         fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
-    # Calculate global Y range for label collision logic
+    # Calculate global scale boundaries for smart layout metrics
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
     y_range = y_max - y_min if pd.notna(y_max) and pd.notna(y_min) else 1.0
@@ -97,7 +101,7 @@ def build_precision_graph(data, y_cols, title):
         plot_data = gdf.copy()
         ghost_rows = []
 
-        # --- GAP & DEAD ZONE LOGIC ---
+        # --- BREAK PATH INTERPOLATION LOGIC ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
@@ -110,8 +114,7 @@ def build_precision_graph(data, y_cols, title):
                 for col in y_cols:
                     slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
                     ghost_start[col] = gdf.iloc[i][col] + slope
-                    # Using float('nan') ensures Plotly visually breaks the line
-                    ghost_break[col] = float('nan')  
+                    ghost_break[col] = float('nan')  # Generates clean break vector paths
                     ghost_end[col] = gdf.iloc[i+1][col] - slope
                     
                 ghost_rows.extend([ghost_start, ghost_break, ghost_end])
@@ -121,25 +124,25 @@ def build_precision_graph(data, y_cols, title):
         
         plot_data = plot_data.sort_values('Day')
 
-        # --- RENDER DATA LAYERS ---
+        # --- DATA VECTOR RENDERING ---
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Line Segments 
+            # Group trend lines
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Real Recorded Samples (Dots)
+            # Sample collection indicators
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
-            # Compute Change Metrics for End Annotations
+            # Metric analysis tracking bounds
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
@@ -149,15 +152,13 @@ def build_precision_graph(data, y_cols, title):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- FIX 2: ITERATIVE LABEL REPELLER ---
+    # --- FIX 2: BI-DIRECTIONAL FORCE LABELS ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
-        
-        # Ensure at least 8% of the chart height exists between labels
         min_distance = max(0.12, y_range * 0.08) 
         
-        # Iteratively push labels apart from the center so they don't drift off-screen
-        for _ in range(10): 
+        # Iteratively distribute labels away from tight clusters
+        for _ in range(15): 
             for i in range(len(label_positions) - 1):
                 diff = label_positions[i+1]['y'] - label_positions[i]['y']
                 if diff < min_distance:
@@ -180,16 +181,17 @@ def build_precision_graph(data, y_cols, title):
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
+
 # --- STREAMLIT UI LAYOUT ---
 df_master, global_start = get_clean_data()
 
 if not df_master.empty and global_start:
     st.title("Algae Lab Growth Analysis")
     
-    # Structural presentation views
     tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
     
     with tab1:
+        # Pass df_master as normal
         st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
         st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
         
@@ -197,9 +199,9 @@ if not df_master.empty and global_start:
         for group in GROUPS:
             gdf_group = df_master[df_master['Group'] == group]
             if not gdf_group.empty:
-                st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}"), use_container_width=True)
+                # FIX: We explicitly pass df_master here so deep dives know where all global missing days are!
+                st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
                 
-    # Sidebar control actions
     with st.sidebar:
         st.markdown("### Controls")
         if st.button("Sync Live Data", use_container_width=True):
