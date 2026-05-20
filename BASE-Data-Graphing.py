@@ -19,6 +19,7 @@ COLORS = {
 st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
 @st.cache_data(ttl=60)
+@st.cache_data(ttl=60)
 def get_clean_data():
     try:
         res = requests.get(SHEET_URL)
@@ -28,13 +29,25 @@ def get_clean_data():
             if name in xls:
                 temp_df = xls[name].copy()
                 temp_df.columns = temp_df.columns.str.strip()
+                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
+                
+                # --- FIX: Find the true start date BEFORE filtering ---
+                if not temp_df['Date'].dropna().empty:
+                    true_start_date = temp_df['Date'].dropna().min()
+                else:
+                    continue
+                
                 if 'Notes' in temp_df.columns:
                     temp_df = temp_df[~temp_df['Notes'].astype(str).str.contains('Muck', na=False, case=False)]
-                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
+                
                 temp_df['Real 450nm'] = pd.to_numeric(temp_df['Real 450nm'], errors='coerce')
                 temp_df['Real 750nm'] = pd.to_numeric(temp_df['Real 750nm'], errors='coerce')
                 temp_df = temp_df.dropna(subset=['Date', 'Real 450nm']).query('`Real 450nm` > 0')
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
+                
+                # --- FIX: Convert the Date column into relative integer Days ---
+                temp_df['Date'] = (temp_df['Date'] - true_start_date).dt.days + 1
+                
                 temp_df['Group'] = name
                 all_df.append(temp_df)
         return pd.concat(all_df) if all_df else pd.DataFrame()
