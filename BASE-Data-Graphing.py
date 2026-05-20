@@ -68,26 +68,30 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     fig = go.Figure()
     label_positions = []
 
-    # Use master dataset to figure out the true global missing days
+    # Since a missing day means it's missing for everyone, we use master_data (or data)
     timeline_source = master_data if master_data is not None else data
 
-    if timeline_source.empty:
-        return fig
-
-    # --- NEW GLOBAL TIMELINE ANALYSIS ---
-    min_day = int(timeline_source['Day'].min())
-    max_day = int(timeline_source['Day'].max())
-    all_possible_days = set(range(min_day, max_day + 1))
+    # --- NEW TIMELINE BOUNDS & DOTTED LINES LOGIC ---
+    missing_days = set()
+    all_recorded_days = set(timeline_source['Day'].dropna().unique())
     
-    # A day is only considered "collected" if ANY group successfully has a data point on it
-    collected_days = set(timeline_source['Day'].dropna().unique())
-    missing_days = all_possible_days - collected_days
+    if all_recorded_days:
+        min_day, max_day = int(min(all_recorded_days)), int(max(all_recorded_days))
+        for d in range(min_day, max_day + 1):
+            if d not in all_recorded_days:
+                missing_days.add(d)
 
-    # Draw the global dotted vertical lines for completely missed lab days
-    for md in sorted(missing_days):
-        fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+    # For every missing day block, draw a boundary line at the start day and end day
+    # Example: Missing day 4 -> Dotted lines on Day 4 and Day 5
+    dotted_lines_to_draw = set()
+    for md in missing_days:
+        dotted_lines_to_draw.add(md)      # Left boundary line
+        dotted_lines_to_draw.add(md + 1)  # Right boundary line
 
-    # Calculate global scale boundaries for label adjustments
+    for line_x in sorted(dotted_lines_to_draw):
+        fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+
+    # Calculate global Y range for label collision logic
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
     y_range = y_max - y_min if pd.notna(y_max) and pd.notna(y_min) else 1.0
@@ -96,32 +100,58 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         gdf = data[data['Group'] == group_name].sort_values('Day')
         if gdf.empty:
             continue
-        
-        # --- AUTOMATIC LINE BREAKING VIA REINDEXING ---
-        # Reindexing introduces standard NaNs on missing days, forcing Plotly to break the trends cleanly
-        full_day_range = range(int(gdf['Day'].min()), int(gdf['Day'].max()) + 1)
-        plot_data = gdf.set_index('Day').reindex(full_day_range).reset_index()
-        plot_data['Group'] = group_name
+            
+        plot_data = gdf.copy()
+        ghost_rows = []
 
-        # --- DATA VECTOR RENDERING ---
+        # --- CHOPPED LINE SLOPE INTERPOLATION LOGIC ---
+        for i in range(len(gdf) - 1):
+            d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
+            gap_days = int(d2 - d1)
+            
+            # If there is a missing day gap (e.g., Day 3 to Day 5)
+            if gap_days > 1:
+                # Ghost A: Extends trend line up to the first dotted line
+                ghost_a = {'Day': d1 + 1, 'Group': group_name}
+                # Ghost Break: Placed in the dead-zone middle to snap/cut the line path
+                ghost_break = {'Day': d1 + 1.5, 'Group': group_name}
+                # Ghost B: Picks up at the second dotted line
+                ghost_b = {'Day': d2, 'Group': group_name}
+                
+                for col in y_cols:
+                    # Calculate slope over the real gap (e.g., Day 5 value - Day 3 value) / 2
+                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
+                    
+                    ghost_a[col] = gdf.iloc[i][col] + slope
+                    ghost_break[col] = float('nan')  # Drops line path completely
+                    ghost_b[col] = gdf.iloc[i+1][col]  # Meets the destination point perfectly
+                    
+                ghost_rows.extend([ghost_a, ghost_break, ghost_b])
+
+        if ghost_rows:
+            plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
+        
+        plot_data = plot_data.sort_values('Day')
+
+        # --- RENDER DATA LAYERS ---
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Continuous line segments (breaks dynamically over missing global days due to Reindexed NaNs)
+            # Trend Line Sections (Plotly automatically breaks vectors at NaN values)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Sample dots (drawn only on the clean real rows to prevent blank hover shapes)
+            # Real Recorded Samples (Dots)
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
-            # End Annotations Calculation
+            # Compute End Annotations
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
@@ -131,7 +161,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- BI-DIRECTIONAL FORCE LABELS ---
+    # --- ITERATIVE LABEL REPELLER ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
