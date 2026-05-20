@@ -151,13 +151,17 @@ def build_precision_graph(data, y_cols, title):
 df_master = get_clean_data()
 if not df_master.empty:
     st.title("Algae Lab Growth Analysis")
-    st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
-    st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
+    
+    # ADD theme=None TO ALL CHART CALLS
+    st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True, theme=None)
+    st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True, theme=None)
+    
     st.divider()
     for group in GROUPS:
         gdf_group = df_master[df_master['Group'] == group]
         if not gdf_group.empty:
-            st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}"), use_container_width=True)
+            st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}"), use_container_width=True, theme=None)
+            
     if st.sidebar.button("Sync Live Data"):
         st.cache_data.clear()
         st.rerun()
