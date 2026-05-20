@@ -71,7 +71,9 @@ def build_precision_graph(data, y_cols, title):
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             m_sizes = [10 if is_real else 0 for is_real in plot_data['IsReal']]
-            m_lines = [10 if is_real else 0 for is_real in plot_data['IsReal']]
+            m_lines = [2 if is_real else 0 for is_real in plot_data['IsReal']]
+            m_colors = [color if is_real else 'rgba(0,0,0,0)' for is_real in plot_data['IsReal']]
+            m_borders = ['white' if is_real else 'rgba(0,0,0,0)' for is_real in plot_data['IsReal']]
             fig.add_trace(go.Scatter(
                 x=plot_data['Date'], y=plot_data[col], mode='lines+markers',
                 line=dict(color=color, width=4),
