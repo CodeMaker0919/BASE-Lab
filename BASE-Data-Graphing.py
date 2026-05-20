@@ -47,32 +47,45 @@ def build_precision_graph(data, y_cols, title):
 
     for group_name in data['Group'].unique():
         gdf = data[data['Group'] == group_name].sort_values('Date')
+        
+        # 1. ADD A FLAG FOR ACTUAL DATA
+        gdf['IsReal'] = True 
         plot_data = gdf.copy()
 
         # --- GHOST POINT INTERPOLATION ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Date'], gdf.iloc[i+1]['Date']
-            if (d2 - d1).days > 1:
-                gap_start, gap_end = d1 + timedelta(days=1), d2
+            
+            if (d2 - d1) > 1: 
+                gap_start, gap_end = d1 + 1, d2
                 fig.add_vline(x=gap_start, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 fig.add_vline(x=gap_end, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 
-                ghost_row = {'Date': gap_start, 'Group': group_name}
-                break_row = {'Date': gap_start + timedelta(minutes=1), 'Group': group_name}
+                # 2. MARK INTERPOLATED POINTS AS NOT REAL
+                ghost_row = {'Date': gap_start, 'Group': group_name, 'IsReal': False}
+                break_row = {'Date': gap_start + 0.001, 'Group': group_name, 'IsReal': False} 
+                
                 for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1).days
+                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1)
                     ghost_row[col] = gdf.iloc[i][col] + slope
                     break_row[col] = None
+                
                 plot_data = pd.concat([plot_data, pd.DataFrame([ghost_row, break_row])], ignore_index=True)
-
         plot_data = plot_data.sort_values('Date')
 
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
+            
+            # 3. CREATE DYNAMIC SIZES BASED ON THE FLAG
+            # Size 10 for real points, 0 for ghost points
+            m_sizes = [10 if is_real else 0 for is_real in plot_data['IsReal']]
+            m_lines = [2 if is_real else 0 for is_real in plot_data['IsReal']]
+
             fig.add_trace(go.Scatter(
                 x=plot_data['Date'], y=plot_data[col], mode='lines+markers',
                 line=dict(color=color, width=4),
-                marker=dict(size=10, line=dict(width=2, color="white")),
+                # 4. APPLY DYNAMIC LISTS TO MARKER STYLING
+                marker=dict(size=m_sizes, line=dict(width=m_lines, color="white")),
                 connectgaps=False
             ))
 
