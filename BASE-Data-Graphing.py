@@ -68,6 +68,21 @@ def build_precision_graph(data, y_cols, title):
     fig = go.Figure()
     label_positions = []
 
+    # --- FIX 1: GLOBAL DOTTED LINES ---
+    # Find all missing days across the entire experiment, regardless of group
+    all_recorded_days = set(data['Day'].dropna().unique())
+    if all_recorded_days:
+        min_day, max_day = int(min(all_recorded_days)), int(max(all_recorded_days))
+        missing_days = [d for d in range(min_day, max_day + 1) if d not in all_recorded_days]
+        
+        for md in missing_days:
+            fig.add_vline(x=md, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+
+    # Calculate global Y range for label collision logic
+    y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
+    y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
+    y_range = y_max - y_min if pd.notna(y_max) and pd.notna(y_min) else 1.0
+
     for group_name in data['Group'].unique():
         gdf = data[data['Group'] == group_name].sort_values('Day')
         if gdf.empty:
@@ -76,29 +91,24 @@ def build_precision_graph(data, y_cols, title):
         plot_data = gdf.copy()
         ghost_rows = []
 
-        # --- REFACTORED GAP & DEAD ZONE LOGIC ---
+        # --- GAP & DEAD ZONE LOGIC ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
             
-            if gap_days > 1:
-                # Add historical grid boundary lines for missing periods
-                for day_offset in range(1, gap_days):
-                    fig.add_vline(x=d1 + day_offset, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+            # Segment tracking data breaks (Vertical lines are now handled globally above)
+            if gap_days > 2:
+                ghost_start = {'Day': d1 + 1, 'Group': group_name}
+                ghost_break = {'Day': d1 + 1.1, 'Group': group_name}
+                ghost_end = {'Day': d2 - 1, 'Group': group_name}
                 
-                # Segment tracking data breaks
-                if gap_days > 2:
-                    ghost_start = {'Day': d1 + 1, 'Group': group_name}
-                    ghost_break = {'Day': d1 + 1.1, 'Group': group_name}
-                    ghost_end = {'Day': d2 - 1, 'Group': group_name}
+                for col in y_cols:
+                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
+                    ghost_start[col] = gdf.iloc[i][col] + slope
+                    ghost_break[col] = None  # Forces breaking the visual line path
+                    ghost_end[col] = gdf.iloc[i+1][col] - slope
                     
-                    for col in y_cols:
-                        slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
-                        ghost_start[col] = gdf.iloc[i][col] + slope
-                        ghost_break[col] = None  # Forces breaking the visual line path
-                        ghost_end[col] = gdf.iloc[i+1][col] - slope
-                        
-                    ghost_rows.extend([ghost_start, ghost_break, ghost_end])
+                ghost_rows.extend([ghost_start, ghost_break, ghost_end])
 
         if ghost_rows:
             plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
@@ -133,13 +143,13 @@ def build_precision_graph(data, y_cols, title):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- ADJUST LABELS FOR CLARITY ---
+    # --- FIX 2: ADJUST LABELS FOR CLARITY ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
-        # Dynamic tracking buffer based on the range of active visible items
-        y_vals = [lp['y'] for lp in label_positions]
-        y_range = max(y_vals) - min(y_vals) if len(y_vals) > 1 else 1.0
-        min_distance = max(0.05, y_range * 0.08)
+        
+        # Scale the buffer distance dynamically to 8% of the chart's total Y height 
+        # with an absolute floor so they never crush together
+        min_distance = max(0.12, y_range * 0.08) 
         
         for i in range(1, len(label_positions)):
             prev_y = label_positions[i-1]['y']
