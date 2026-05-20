@@ -48,6 +48,7 @@ def build_precision_graph(data, y_cols, title):
     for group_name in data['Group'].unique():
         gdf = data[data['Group'] == group_name].sort_values('Date')
         plot_data = gdf.copy()
+        gdf['IsReal'] = True
 
         # --- GHOST POINT INTERPOLATION ---
         for i in range(len(gdf) - 1):
@@ -69,6 +70,8 @@ def build_precision_graph(data, y_cols, title):
 
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
+            m_sizes = [10 if is_real else 0 for is_real in plot_data['IsReal']]
+            m_lines = [10 if is_real else 0 for is_real in plot_data['IsReal']]
             fig.add_trace(go.Scatter(
                 x=plot_data['Date'], y=plot_data[col], mode='lines+markers',
                 line=dict(color=color, width=4),
