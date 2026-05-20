@@ -155,7 +155,7 @@ df_master = get_clean_data()
 if not df_master.empty:
     st.title("Algae Lab Growth Analysis")
     
-    # ADD theme=None TO ALL CHART CALLS
+    # ADD theme=None TO BYPASS STREAMLIT'S FADED STYLING
     st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True, theme=None)
     st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True, theme=None)
     
@@ -163,6 +163,7 @@ if not df_master.empty:
     for group in GROUPS:
         gdf_group = df_master[df_master['Group'] == group]
         if not gdf_group.empty:
+            # ADD theme=None HERE AS WELL
             st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}"), use_container_width=True, theme=None)
             
     if st.sidebar.button("Sync Live Data"):
