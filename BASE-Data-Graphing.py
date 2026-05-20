@@ -48,7 +48,7 @@ def build_precision_graph(data, y_cols, title):
     for group_name in data['Group'].unique():
         gdf = data[data['Group'] == group_name].sort_values('Date')
         plot_data = gdf.copy()
-        gdf['IsReal'] = True
+        plot_data['IsReal'] = True
 
         # --- GHOST POINT INTERPOLATION ---
         for i in range(len(gdf) - 1):
