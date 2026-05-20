@@ -19,7 +19,6 @@ COLORS = {
 st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
 @st.cache_data(ttl=60)
-@st.cache_data(ttl=60)
 def get_clean_data():
     try:
         res = requests.get(SHEET_URL)
@@ -29,25 +28,13 @@ def get_clean_data():
             if name in xls:
                 temp_df = xls[name].copy()
                 temp_df.columns = temp_df.columns.str.strip()
-                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
-                
-                # --- FIX: Find the true start date BEFORE filtering ---
-                if not temp_df['Date'].dropna().empty:
-                    true_start_date = temp_df['Date'].dropna().min()
-                else:
-                    continue
-                
                 if 'Notes' in temp_df.columns:
                     temp_df = temp_df[~temp_df['Notes'].astype(str).str.contains('Muck', na=False, case=False)]
-                
+                temp_df['Date'] = pd.to_datetime(temp_df['Date'], errors='coerce').dt.normalize()
                 temp_df['Real 450nm'] = pd.to_numeric(temp_df['Real 450nm'], errors='coerce')
                 temp_df['Real 750nm'] = pd.to_numeric(temp_df['Real 750nm'], errors='coerce')
                 temp_df = temp_df.dropna(subset=['Date', 'Real 450nm']).query('`Real 450nm` > 0')
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
-                
-                # --- FIX: Convert the Date column into relative integer Days ---
-                temp_df['Date'] = (temp_df['Date'] - true_start_date).dt.days + 1
-                
                 temp_df['Group'] = name
                 all_df.append(temp_df)
         return pd.concat(all_df) if all_df else pd.DataFrame()
@@ -60,45 +47,32 @@ def build_precision_graph(data, y_cols, title):
 
     for group_name in data['Group'].unique():
         gdf = data[data['Group'] == group_name].sort_values('Date')
-        
-        # 1. ADD A FLAG FOR ACTUAL DATA
-        gdf['IsReal'] = True 
         plot_data = gdf.copy()
 
         # --- GHOST POINT INTERPOLATION ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Date'], gdf.iloc[i+1]['Date']
-            
-            if (d2 - d1) > 1: 
-                gap_start, gap_end = d1 + 1, d2
+            if (d2 - d1).days > 1:
+                gap_start, gap_end = d1 + timedelta(days=1), d2
                 fig.add_vline(x=gap_start, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 fig.add_vline(x=gap_end, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
                 
-                # 2. MARK INTERPOLATED POINTS AS NOT REAL
-                ghost_row = {'Date': gap_start, 'Group': group_name, 'IsReal': False}
-                break_row = {'Date': gap_start + 0.001, 'Group': group_name, 'IsReal': False} 
-                
+                ghost_row = {'Date': gap_start, 'Group': group_name}
+                break_row = {'Date': gap_start + timedelta(minutes=1), 'Group': group_name}
                 for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1)
+                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / (d2 - d1).days
                     ghost_row[col] = gdf.iloc[i][col] + slope
                     break_row[col] = None
-                
                 plot_data = pd.concat([plot_data, pd.DataFrame([ghost_row, break_row])], ignore_index=True)
+
         plot_data = plot_data.sort_values('Date')
 
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
-            
-            # 3. CREATE DYNAMIC SIZES BASED ON THE FLAG
-            # Size 10 for real points, 0 for ghost points
-            m_sizes = [10 if is_real else 0 for is_real in plot_data['IsReal']]
-            m_lines = [2 if is_real else 0 for is_real in plot_data['IsReal']]
-
             fig.add_trace(go.Scatter(
                 x=plot_data['Date'], y=plot_data[col], mode='lines+markers',
                 line=dict(color=color, width=4),
-                # 4. APPLY DYNAMIC LISTS TO MARKER STYLING
-                marker=dict(size=m_sizes, line=dict(width=m_lines, color="white")),
+                marker=dict(size=10, line=dict(width=2, color="white")),
                 connectgaps=False
             ))
 
