@@ -136,8 +136,8 @@ def build_precision_graph(data, y_cols, title):
     fig.update_layout(
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="white")), # Make title white
         template="plotly_dark", # Change from plotly_white to plotly_dark
-        paper_bgcolor="#0f172a", # A rich, solid dark slate color
-        plot_bgcolor="#0f172a",  # A rich, solid dark slate color
+        paper_bgcolor="#000000", # A rich, solid dark slate color
+        plot_bgcolor="#000000",  # A rich, solid dark slate color
         showlegend=False, height=750,
         margin=dict(r=220, l=60, t=100, b=60),
         xaxis=dict(
