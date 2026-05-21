@@ -6,8 +6,7 @@ import io
 
 # --- CONFIG (UPDATED FOR YOUR FRIEND) ---
 # Replace this with your friend's actual Google Sheet ID
-SHEET_ID = "1-rg8dp5_PMRO83Z_sISVTRIbToui0ea1ZnAXsE_KHFA" 
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=xlsx"
+SHEET_URL = f"https://docs.google.com/spreadsheets/d/1X7n-R2W4QBOnAJf_QSJ0xWCJqUhrvqFpsy__LDBiQ7k/edit?gid=1065140438#gid=1065140438"
 
 # Changed from magnet strengths to their photoperiod tab names
 GROUPS = ["12H", "16H", "24H"]
