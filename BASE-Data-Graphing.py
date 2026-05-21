@@ -17,9 +17,9 @@ COLORS = {
 
 st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
-@st.cache_data(ttl=60)
 def get_clean_data():
     try:
+        # Fetch fresh data every time this runs (no global caching)
         res = requests.get(SHEET_URL)
         xls = pd.read_excel(io.BytesIO(res.content), sheet_name=None, engine='openpyxl')
         all_df = []
@@ -67,11 +67,9 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         
     fig = go.Figure()
     label_positions = []
-
-    # Since a missing day means it's missing for everyone, we use master_data (or data)
     timeline_source = master_data if master_data is not None else data
 
-    # --- NEW TIMELINE BOUNDS & DOTTED LINES LOGIC ---
+    # --- TIMELINE BOUNDS & DOTTED LINES LOGIC ---
     missing_days = set()
     all_recorded_days = set(timeline_source['Day'].dropna().unique())
     
@@ -81,17 +79,14 @@ def build_precision_graph(data, y_cols, title, master_data=None):
             if d not in all_recorded_days:
                 missing_days.add(d)
 
-    # For every missing day block, draw a boundary line at the start day and end day
-    # Example: Missing day 4 -> Dotted lines on Day 4 and Day 5
     dotted_lines_to_draw = set()
     for md in missing_days:
-        dotted_lines_to_draw.add(md)      # Left boundary line
-        dotted_lines_to_draw.add(md + 1)  # Right boundary line
+        dotted_lines_to_draw.add(md)      
+        dotted_lines_to_draw.add(md + 1)  
 
     for line_x in sorted(dotted_lines_to_draw):
         fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
-    # Calculate global Y range for label collision logic
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
     y_range = y_max - y_min if pd.notna(y_max) and pd.notna(y_min) else 1.0
@@ -109,22 +104,16 @@ def build_precision_graph(data, y_cols, title, master_data=None):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
             
-            # If there is a missing day gap (e.g., Day 3 to Day 5)
             if gap_days > 1:
-                # Ghost A: Extends trend line up to the first dotted line
                 ghost_a = {'Day': d1 + 1, 'Group': group_name}
-                # Ghost Break: Placed in the dead-zone middle to snap/cut the line path
                 ghost_break = {'Day': d1 + 1.5, 'Group': group_name}
-                # Ghost B: Picks up at the second dotted line
                 ghost_b = {'Day': d2, 'Group': group_name}
                 
                 for col in y_cols:
-                    # Calculate slope over the real gap (e.g., Day 5 value - Day 3 value) / 2
                     slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
-                    
                     ghost_a[col] = gdf.iloc[i][col] + slope
-                    ghost_break[col] = float('nan')  # Drops line path completely
-                    ghost_b[col] = gdf.iloc[i+1][col]  # Meets the destination point perfectly
+                    ghost_break[col] = float('nan')  
+                    ghost_b[col] = gdf.iloc[i+1][col]  
                     
                 ghost_rows.extend([ghost_a, ghost_break, ghost_b])
 
@@ -137,21 +126,18 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Trend Line Sections (Plotly automatically breaks vectors at NaN values)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Real Recorded Samples (Dots)
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
-            # Compute End Annotations
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
@@ -190,29 +176,29 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     )
     return fig
 
-# --- STREAMLIT UI LAYOUT ---
-df_master, global_start = get_clean_data()
 
-if not df_master.empty and global_start:
-    st.title("Algae Lab Growth Analysis")
-    
-    tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
-    
-    with tab1:
-        st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
-        st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
+# --- AUTONOMOUS REFRESH ENGINE ---
+# This fragment reruns on its own every 30 seconds to fetch and display data silently.
+@st.fragment(run_every=30)
+def render_dashboard_content():
+    df_master, global_start = get_clean_data()
+
+    if not df_master.empty and global_start:
+        tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
         
-    with tab2:
-        for group in GROUPS:
-            gdf_group = df_master[df_master['Group'] == group]
-            if not gdf_group.empty:
-                st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
-                
-    with st.sidebar:
-        st.markdown("### Controls")
-        if st.button("Sync Live Data", use_container_width=True):
-            st.cache_data.clear()
-            st.sidebar.success("Cache Cleared!")
-            st.rerun()
-else:
-    st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
+        with tab1:
+            st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
+            st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
+            
+        with tab2:
+            for group in GROUPS:
+                gdf_group = df_master[df_master['Group'] == group]
+                if not gdf_group.empty:
+                    st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
+    else:
+        st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
+
+
+# --- MAIN APP ROUTINE ---
+st.title("Algae Lab Growth Analysis")
+render_dashboard_content()
