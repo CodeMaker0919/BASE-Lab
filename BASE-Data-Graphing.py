@@ -172,7 +172,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         template="plotly_white", showlegend=False, height=600,
         margin=dict(r=220, l=60, t=100, b=80), # Margins adjusted for X-label padding
         xaxis=dict(
-            title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#475569")),
+            title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#f1f5f9")),
             showgrid=False, 
             linecolor="#94a3b8", 
             tickprefix="Day ", 
