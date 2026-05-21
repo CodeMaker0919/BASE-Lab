@@ -170,8 +170,14 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     fig.update_layout(
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
         template="plotly_white", showlegend=False, height=600,
-        margin=dict(r=220, l=60, t=100, b=60),
-        xaxis=dict(showgrid=False, linecolor="#94a3b8", tickprefix="Day ", dtick=1),
+        margin=dict(r=220, l=60, t=100, b=80), # Margins adjusted for X-label padding
+        xaxis=dict(
+            title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#475569")),
+            showgrid=False, 
+            linecolor="#94a3b8", 
+            tickprefix="Day ", 
+            dtick=1
+        ),
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
