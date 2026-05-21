@@ -65,9 +65,21 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
-    # 1. Vertical dotted lines ONLY on days with recorded data
-    all_recorded_days = set(timeline_source['Day'].dropna().unique())
-    for line_x in sorted(all_recorded_days):
+    # 1. FIXED: Find gaps and add dotted lines ONLY on the days bordering a gap
+    all_recorded_days = sorted(list(set(timeline_source['Day'].dropna().unique())))
+    border_days = set()
+
+    for i in range(len(all_recorded_days) - 1):
+        d1 = all_recorded_days[i]
+        d2 = all_recorded_days[i+1]
+        
+        # If there is a gap greater than 1 day between recordings
+        if d2 - d1 > 1:
+            border_days.add(d1)  # The day before the gap
+            border_days.add(d2)  # The day after the gap
+
+    # Draw the dotted lines only on those boundary days
+    for line_x in sorted(border_days):
         fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
@@ -79,27 +91,25 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         if gdf.empty:
             continue
             
-        # 2. FIXED: Reindex the dataframe to include ALL sequential days.
-        # This inserts NaN values for missing days so Plotly knows where to break the line.
+        # Create explicit NaN breaks for missing days so lines break cleanly
         min_day = int(timeline_source['Day'].min())
         max_day = int(timeline_source['Day'].max())
         full_day_range = pd.DataFrame({'Day': range(min_day, max_day + 1)})
         
-        # Merge group data with the full range to automatically create NaN gaps
         plot_data = pd.merge(full_day_range, gdf, on='Day', how='left')
         plot_data['Group'] = group_name
 
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # This trace draws the solid lines, but breaks completely over missing days
+            # Trend line trace (breaks perfectly at gaps)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # This trace draws the actual data points on the dotted lines
+            # Data markers trace
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
@@ -115,7 +125,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- Label Positioning & Layout (Kept exactly as your original) ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
@@ -140,7 +149,12 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         margin=dict(r=220, l=60, t=100, b=80), 
         xaxis=dict(
             title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#475569")),
-            showgrid=False, linecolor="#94a3b8", tickprefix="Day ", dtick=1
+            showgrid=False,       # Keeps standard grid lines off
+            zeroline=False, 
+            showline=True, 
+            linecolor="#94a3b8", 
+            tickprefix="Day ", 
+            dtick=1
         ),
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
