@@ -197,7 +197,7 @@ df_master, global_start = get_clean_data()
 if not df_master.empty and global_start:
     # 1. FIXED: Build sidebar elements completely safely outside fragment routines
     with st.sidebar:
-        st.markdown("### 📸 Graph Snapshot Panel")
+        st.markdown("### Graph Snapshot Panel")
         
         options_list = [
             "Chlorophyll Growth (450nm)",
@@ -221,7 +221,7 @@ if not df_master.empty and global_start:
             clean_filename = f"{selected_target.lower().replace(' ', '_').replace(':', '')}_snapshot.png"
             
             st.download_button(
-                label="📥 Download Screenshot",
+                label="Download Screenshot",
                 data=img_bytes,
                 file_name=clean_filename,
                 mime="image/png",
