@@ -65,22 +65,12 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
-    missing_days = set()
+    # --- UPDATED: Draw dotted lines only on recorded data days ---
     all_recorded_days = set(timeline_source['Day'].dropna().unique())
     
-    if all_recorded_days:
-        min_day, max_day = int(min(all_recorded_days)), int(max(all_recorded_days))
-        for d in range(min_day, max_day + 1):
-            if d not in all_recorded_days:
-                missing_days.add(d)
-
-    dotted_lines_to_draw = set()
-    for md in missing_days:
-        dotted_lines_to_draw.add(md)      
-        dotted_lines_to_draw.add(md + 1)  
-
-    for line_x in sorted(dotted_lines_to_draw):
+    for line_x in sorted(all_recorded_days):
         fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
+    # -------------------------------------------------------------
 
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
@@ -170,7 +160,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
     return fig
-
 
 # --- AUTONOMOUS REFRESH ENGINE ---
 @st.fragment(run_every=30)
