@@ -65,12 +65,10 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
-    # --- UPDATED: Draw dotted lines only on recorded data days ---
+    # 1. Vertical dotted lines ONLY on days with recorded data
     all_recorded_days = set(timeline_source['Day'].dropna().unique())
-    
     for line_x in sorted(all_recorded_days):
         fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
-    # -------------------------------------------------------------
 
     y_max = data[y_cols].max().max() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].max()
     y_min = data[y_cols].min().min() if isinstance(data[y_cols], pd.DataFrame) else data[y_cols].min()
@@ -81,40 +79,27 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         if gdf.empty:
             continue
             
-        plot_data = gdf.copy()
-        ghost_rows = []
-
-        for i in range(len(gdf) - 1):
-            d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
-            gap_days = int(d2 - d1)
-            
-            if gap_days > 1:
-                ghost_a = {'Day': d1 + 1, 'Group': group_name}
-                ghost_break = {'Day': d1 + 1.5, 'Group': group_name}
-                ghost_b = {'Day': d2, 'Group': group_name}
-                
-                for col in y_cols:
-                    slope = (gdf.iloc[i+1][col] - gdf.iloc[i][col]) / gap_days
-                    ghost_a[col] = gdf.iloc[i][col] + slope
-                    ghost_break[col] = float('nan')  
-                    ghost_b[col] = gdf.iloc[i+1][col]  
-                    
-                ghost_rows.extend([ghost_a, ghost_break, ghost_b])
-
-        if ghost_rows:
-            plot_data = pd.concat([plot_data, pd.DataFrame(ghost_rows)], ignore_index=True)
+        # 2. FIXED: Reindex the dataframe to include ALL sequential days.
+        # This inserts NaN values for missing days so Plotly knows where to break the line.
+        min_day = int(timeline_source['Day'].min())
+        max_day = int(timeline_source['Day'].max())
+        full_day_range = pd.DataFrame({'Day': range(min_day, max_day + 1)})
         
-        plot_data = plot_data.sort_values('Day')
+        # Merge group data with the full range to automatically create NaN gaps
+        plot_data = pd.merge(full_day_range, gdf, on='Day', how='left')
+        plot_data['Group'] = group_name
 
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
+            # This trace draws the solid lines, but breaks completely over missing days
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
+            # This trace draws the actual data points on the dotted lines
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
@@ -130,10 +115,10 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
+    # --- Label Positioning & Layout (Kept exactly as your original) ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
-        
         for _ in range(15): 
             for i in range(len(label_positions) - 1):
                 diff = label_positions[i+1]['y'] - label_positions[i]['y']
