@@ -19,13 +19,11 @@ st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
 def get_clean_data():
     try:
-        # Fetch fresh data every time this runs (no global caching)
         res = requests.get(SHEET_URL)
         xls = pd.read_excel(io.BytesIO(res.content), sheet_name=None, engine='openpyxl')
         all_df = []
         global_start_date = None
         
-        # 1. Establish the True Baseline Timeline Start
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
@@ -36,7 +34,6 @@ def get_clean_data():
                     if global_start_date is None or sheet_min < global_start_date:
                         global_start_date = sheet_min
 
-        # 2. Extract and Process Clean Observations
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
@@ -53,7 +50,6 @@ def get_clean_data():
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
                 temp_df['Group'] = name
                 
-                # Pre-calculate relative experiment timeline day
                 temp_df['Day'] = (temp_df['Date'] - global_start_date).dt.days + 1
                 all_df.append(temp_df)
                 
@@ -69,7 +65,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
-    # --- TIMELINE BOUNDS & DOTTED LINES LOGIC ---
     missing_days = set()
     all_recorded_days = set(timeline_source['Day'].dropna().unique())
     
@@ -99,7 +94,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         plot_data = gdf.copy()
         ghost_rows = []
 
-        # --- CHOPPED LINE SLOPE INTERPOLATION LOGIC ---
         for i in range(len(gdf) - 1):
             d1, d2 = gdf.iloc[i]['Day'], gdf.iloc[i+1]['Day']
             gap_days = int(d2 - d1)
@@ -122,7 +116,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         
         plot_data = plot_data.sort_values('Day')
 
-        # --- RENDER DATA LAYERS ---
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
@@ -147,7 +140,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
-    # --- ITERATIVE LABEL REPELLER ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
@@ -170,13 +162,10 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     fig.update_layout(
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
         template="plotly_white", showlegend=False, height=600,
-        margin=dict(r=220, l=60, t=100, b=80), # Margins adjusted for X-label padding
+        margin=dict(r=220, l=60, t=100, b=80), 
         xaxis=dict(
-            title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#f1f5f9")),
-            showgrid=False, 
-            linecolor="#94a3b8", 
-            tickprefix="Day ", 
-            dtick=1
+            title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#475569")),
+            showgrid=False, linecolor="#94a3b8", tickprefix="Day ", dtick=1
         ),
         yaxis=dict(gridcolor="#f1f5f9", title="Absorbance Units")
     )
@@ -184,12 +173,45 @@ def build_precision_graph(data, y_cols, title, master_data=None):
 
 
 # --- AUTONOMOUS REFRESH ENGINE ---
-# This fragment reruns on its own every 30 seconds to fetch and display data silently.
 @st.fragment(run_every=30)
 def render_dashboard_content():
     df_master, global_start = get_clean_data()
 
     if not df_master.empty and global_start:
+        # --- SIDEBAR DOWNLOAD CONTROLS ---
+        # The sidebar dynamically builds figures on demand for clean image compilation
+        with st.sidebar:
+            st.markdown("### 📸 Graph Snapshot Panel")
+            
+            # Form options matching exactly what maps onto our plots
+            option_map = {
+                "Chlorophyll Growth (450nm)": lambda: build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"),
+                "Cell Density Growth (750nm)": lambda: build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"),
+                **{f"Deep Dive: {g}": lambda g=g: build_precision_graph(df_master[df_master['Group'] == g], ['Real 450nm', 'Real 750nm'], f"Deep Dive: {g}", master_data=df_master) for g in GROUPS}
+            }
+            
+            selected_target = st.selectbox("Select graph to snapshot:", list(option_map.keys()))
+            
+            try:
+                # Generate the plot configuration requested
+                target_fig = option_map[selected_target]()
+                
+                # Convert the Plotly figure to a raw static PNG byte array string 
+                img_bytes = target_fig.to_image(format="png", width=1200, height=650, scale=2)
+                
+                clean_filename = f"{selected_target.lower().replace(' ', '_').replace(':', '')}_snapshot.png"
+                
+                st.download_button(
+                    label="📥 Download Screenshot",
+                    data=img_bytes,
+                    file_name=clean_filename,
+                    mime="image/png",
+                    use_container_width=True
+                )
+            except Exception as e:
+                st.error(f"Image generation ready. Verification pending package configuration.")
+
+        # --- MAIN DASHBOARD VIEWS ---
         tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
         
         with tab1:
@@ -205,6 +227,6 @@ def render_dashboard_content():
         st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
 
 
-# --- MAIN APP ROUTINE ---
+# --- MAIN ROUTINE ---
 st.title("Algae Lab Growth Analysis")
 render_dashboard_content()
