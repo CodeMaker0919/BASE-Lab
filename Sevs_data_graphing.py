@@ -3,12 +3,13 @@ import pandas as pd
 import plotly.graph_objects as go
 import requests
 import io
+import re
 
-# --- CONFIG (UPDATED FOR YOUR FRIEND) ---
-# Replace this with your friend's actual Google Sheet ID
-SHEET_URL = f"https://docs.google.com/spreadsheets/d/1X7n-R2W4QBOnAJf_QSJ0xWCJqUhrvqFpsy__LDBiQ7k/edit?gid=1065140438#gid=1065140438"
+# --- CONFIG (UPDATED & FIXED) ---
+# Paste the browser URL here; the cleaning function below will automatically format it for export
+RAW_BROWSER_URL = "https://docs.google.com/spreadsheets/d/1X7n-R2W4QBOnAJf_QSJ0xWCJqUhrvqFpsy__LDBiQ7k/edit?gid=1065140438#gid=1065140438"
 
-# Changed from magnet strengths to their photoperiod tab names
+# Photoperiod tab names matching your friend's sheet tabs
 GROUPS = ["12H", "16H", "24H"]
 
 COLORS = {
@@ -23,11 +24,21 @@ st.set_page_config(page_title="Algae Lab Report", layout="wide")
 
 def get_clean_data():
     try:
-        res = requests.get(SHEET_URL)
+        # Extract the unique Spreadsheet ID using a regular expression
+        match = re.search(r"/d/([a-zA-Z0-9-_]+)", RAW_BROWSER_URL)
+        if not match:
+            return pd.DataFrame(), None
+        
+        sheet_id = match.group(1)
+        # Convert browser URL into a direct openpyxl-compatible XLSX download link
+        download_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx"
+        
+        res = requests.get(download_url)
         xls = pd.read_excel(io.BytesIO(res.content), sheet_name=None, engine='openpyxl')
         all_df = []
         global_start_date = None
         
+        # Pass 1: Find the absolute minimum starting date across all photoperiod timelines
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
@@ -38,16 +49,16 @@ def get_clean_data():
                     if global_start_date is None or sheet_min < global_start_date:
                         global_start_date = sheet_min
 
+        # Pass 2: Clean, align headers, and parse data matrix arrays
         for name in GROUPS:
             if name in xls:
                 temp_df = xls[name].copy()
                 
-                # Strip spaces from column names (handles 'Real 450nm ' with trailing spaces)
                 temp_df.columns = temp_df.columns.str.strip()
-                
-                # Normalize column variations to match the graph configuration ('Real 450 nm' -> 'Real 450nm')
+                # Normalize column variations to match processing expectations ('Real 450 nm' -> 'Real 450nm')
                 temp_df.columns = temp_df.columns.str.replace('450 nm', '450nm').str.replace('750 nm', '750nm')
                 
+                # Filter out rows containing 'Muck' or manual baseline modifications
                 if 'Notes' in temp_df.columns:
                     temp_df = temp_df[~temp_df['Notes'].astype(str).str.contains('Muck', na=False, case=False)]
                 
@@ -55,10 +66,12 @@ def get_clean_data():
                 temp_df['Real 450nm'] = pd.to_numeric(temp_df['Real 450nm'], errors='coerce')
                 temp_df['Real 750nm'] = pd.to_numeric(temp_df['Real 750nm'], errors='coerce')
                 
+                # Drop rows with critical structural empty sets
                 temp_df = temp_df.dropna(subset=['Date', 'Real 450nm']).query('`Real 450nm` > 0')
                 temp_df = temp_df.groupby('Date', as_index=False)[['Real 450nm', 'Real 750nm']].mean()
                 temp_df['Group'] = name
                 
+                # Calculate elapsed days relative to the globally synced starting point
                 temp_df['Day'] = (temp_df['Date'] - global_start_date).dt.days + 1
                 all_df.append(temp_df)
                 
@@ -74,6 +87,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
+    # Boundary detection to dynamically introduce missing-day markers
     all_recorded_days = sorted(list(set(timeline_source['Day'].dropna().unique())))
     border_days = set()
 
@@ -106,12 +120,14 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
+            # Continuous trend tracker with structural breaks for missing intervals
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
+            # Isolated data points visualization
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
@@ -127,6 +143,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
                 })
 
+    # Non-overlapping annotation engine alignment
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
         min_distance = max(0.12, y_range * 0.08) 
@@ -218,4 +235,4 @@ if not df_master.empty and global_start:
 
     render_dashboard_content(df_master)
 else:
-    st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
+    st.error("No valid datasets returned. Verify permissions, sheet names, or link share visibility settings.")
