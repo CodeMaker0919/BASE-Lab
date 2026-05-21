@@ -174,59 +174,63 @@ def build_precision_graph(data, y_cols, title, master_data=None):
 
 # --- AUTONOMOUS REFRESH ENGINE ---
 @st.fragment(run_every=30)
-def render_dashboard_content():
-    df_master, global_start = get_clean_data()
-
-    if not df_master.empty and global_start:
-        # --- SIDEBAR DOWNLOAD CONTROLS ---
-        # The sidebar dynamically builds figures on demand for clean image compilation
-        with st.sidebar:
-            st.markdown("### 📸 Graph Snapshot Panel")
-            
-            # Form options matching exactly what maps onto our plots
-            option_map = {
-                "Chlorophyll Growth (450nm)": lambda: build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"),
-                "Cell Density Growth (750nm)": lambda: build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"),
-                **{f"Deep Dive: {g}": lambda g=g: build_precision_graph(df_master[df_master['Group'] == g], ['Real 450nm', 'Real 750nm'], f"Deep Dive: {g}", master_data=df_master) for g in GROUPS}
-            }
-            
-            selected_target = st.selectbox("Select graph to snapshot:", list(option_map.keys()))
-            
-            try:
-                # Generate the plot configuration requested
-                target_fig = option_map[selected_target]()
-                
-                # Convert the Plotly figure to a raw static PNG byte array string 
-                img_bytes = target_fig.to_image(format="png", width=1200, height=650, scale=2)
-                
-                clean_filename = f"{selected_target.lower().replace(' ', '_').replace(':', '')}_snapshot.png"
-                
-                st.download_button(
-                    label="📥 Download Screenshot",
-                    data=img_bytes,
-                    file_name=clean_filename,
-                    mime="image/png",
-                    use_container_width=True
-                )
-            except Exception as e:
-                st.error(f"Image generation ready. Verification pending package configuration.")
-
-        # --- MAIN DASHBOARD VIEWS ---
-        tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
+def render_dashboard_content(df_master):
+    # Tab rendering operates safely completely inside fragment blocks
+    tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
+    
+    with tab1:
+        st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
+        st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
         
-        with tab1:
-            st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
-            st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
-            
-        with tab2:
-            for group in GROUPS:
-                gdf_group = df_master[df_master['Group'] == group]
-                if not gdf_group.empty:
-                    st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
-    else:
-        st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
+    with tab2:
+        for group in GROUPS:
+            gdf_group = df_master[df_master['Group'] == group]
+            if not gdf_group.empty:
+                st.plotly_chart(build_precision_graph(gdf_group, ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group}", master_data=df_master), use_container_width=True)
 
 
-# --- MAIN ROUTINE ---
+# --- MAIN PIPELINE OUTSIDE FRAGMENT OVERRIDE ---
 st.title("Algae Lab Growth Analysis")
-render_dashboard_content()
+
+df_master, global_start = get_clean_data()
+
+if not df_master.empty and global_start:
+    # 1. FIXED: Build sidebar elements completely safely outside fragment routines
+    with st.sidebar:
+        st.markdown("### 📸 Graph Snapshot Panel")
+        
+        options_list = [
+            "Chlorophyll Growth (450nm)",
+            "Cell Density Growth (750nm)"
+        ] + [f"Deep Dive: {g}" for g in GROUPS]
+        
+        selected_target = st.selectbox("Select graph to snapshot:", options_list)
+        
+        try:
+            # Reconstruct requested figure configuration for download mapping
+            if selected_target == "Chlorophyll Growth (450nm)":
+                target_fig = build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)")
+            elif selected_target == "Cell Density Growth (750nm)":
+                target_fig = build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)")
+            else:
+                group_name = selected_target.replace("Deep Dive: ", "")
+                target_fig = build_precision_graph(df_master[df_master['Group'] == group_name], ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group_name}", master_data=df_master)
+            
+            # Export to PNG byte sequence
+            img_bytes = target_fig.to_image(format="png", width=1200, height=650, scale=2)
+            clean_filename = f"{selected_target.lower().replace(' ', '_').replace(':', '')}_snapshot.png"
+            
+            st.download_button(
+                label="📥 Download Screenshot",
+                data=img_bytes,
+                file_name=clean_filename,
+                mime="image/png",
+                use_container_width=True
+            )
+        except Exception:
+            st.error("Snapshot engine ready. Ensure 'kaleido' is installed in your runtime environment.")
+
+    # 2. Call dashboard fragments passing loaded memory blocks directly 
+    render_dashboard_content(df_master)
+else:
+    st.error("No valid datasets returned. Verify permissions or network access to the Google Sheet URL.")
