@@ -65,20 +65,17 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     label_positions = []
     timeline_source = master_data if master_data is not None else data
 
-    # 1. FIXED: Find gaps and add dotted lines ONLY on the days bordering a gap
+    # 1. Add dotted gap-border lines only on days bordering a timeline gap
     all_recorded_days = sorted(list(set(timeline_source['Day'].dropna().unique())))
     border_days = set()
 
     for i in range(len(all_recorded_days) - 1):
         d1 = all_recorded_days[i]
         d2 = all_recorded_days[i+1]
-        
-        # If there is a gap greater than 1 day between recordings
         if d2 - d1 > 1:
-            border_days.add(d1)  # The day before the gap
-            border_days.add(d2)  # The day after the gap
+            border_days.add(d1)  # Day before gap
+            border_days.add(d2)  # Day after gap
 
-    # Draw the dotted lines only on those boundary days
     for line_x in sorted(border_days):
         fig.add_vline(x=line_x, line_dash="dot", line_width=1.5, line_color="#cbd5e1")
 
@@ -91,7 +88,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         if gdf.empty:
             continue
             
-        # Create explicit NaN breaks for missing days so lines break cleanly
+        # Create explicit NaN breaks for missing sequence blocks
         min_day = int(timeline_source['Day'].min())
         max_day = int(timeline_source['Day'].max())
         full_day_range = pd.DataFrame({'Day': range(min_day, max_day + 1)})
@@ -102,7 +99,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Trend line trace (breaks perfectly at gaps)
+            # Trend line trace 
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
@@ -120,15 +117,29 @@ def build_precision_graph(data, y_cols, title, master_data=None):
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
                 pct = ((val_end - val_start) / val_start * 100) if val_start != 0 else 0
+                
+                # --- CALCULATE STANDARD DEVIATION ---
+                # This calculates the sample standard deviation for the group's readings across the timeline
+                group_std = valid[col].std()
+                std_text = f"SD: ±{group_std:.3f}" if pd.notna(group_std) else "SD: N/A"
+                
+                # Constructing structural display strings matching labels seen in Screenshot 2026-05-23 at 8.30.59 PM.png
+                display_name = group_name if len(y_cols) == 1 else col
+                annotation_html = f"<b>{display_name}</b><br>{pct:+.0f}% change<br><span style='font-size:11px; opacity:0.8;'>{std_text}</span>"
+                
                 label_positions.append({
-                    'x': valid.iloc[-1]['Day'], 'y': val_end, 'color': color,
-                    'text': f"<b>{group_name if len(y_cols)==1 else col}</b><br>{pct:+.0f}% change"
+                    'x': valid.iloc[-1]['Day'], 
+                    'y': val_end, 
+                    'color': color,
+                    'text': annotation_html
                 })
 
+    # --- Vertical Alignment Optimization Logic ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
-        min_distance = max(0.12, y_range * 0.08) 
-        for _ in range(15): 
+        # Expanded boundary padding dynamically accounts for the extra text row height
+        min_distance = max(0.18, y_range * 0.11) 
+        for _ in range(25): 
             for i in range(len(label_positions) - 1):
                 diff = label_positions[i+1]['y'] - label_positions[i]['y']
                 if diff < min_distance:
@@ -146,10 +157,10 @@ def build_precision_graph(data, y_cols, title, master_data=None):
     fig.update_layout(
         title=dict(text=f"<b>{title}</b>", font=dict(size=26, color="#1e293b")),
         template="plotly_white", showlegend=False, height=600,
-        margin=dict(r=220, l=60, t=100, b=80), 
+        margin=dict(r=240, l=60, t=100, b=80), # Margins widened slightly to contain text expansion safely
         xaxis=dict(
             title=dict(text="<b>Timeline (Days)</b>", font=dict(size=14, color="#475569")),
-            showgrid=False,       # Keeps standard grid lines off
+            showgrid=False, 
             zeroline=False, 
             showline=True, 
             linecolor="#94a3b8", 
