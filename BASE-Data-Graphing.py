@@ -178,8 +178,8 @@ def render_dashboard_content(df_master):
     tab1, tab2 = st.tabs(["Consolidated Overview", "Deep-Dive Segmentations"])
     
     with tab1:
-        st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)"), use_container_width=True)
-        st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)"), use_container_width=True)
+        st.plotly_chart(build_precision_graph(df_master, 'Real 450nm', "Chlorophyll Concentration(450nm)"), use_container_width=True)
+        st.plotly_chart(build_precision_graph(df_master, 'Real 750nm', "Cell Density (750nm)"), use_container_width=True)
         
     with tab2:
         for group in GROUPS:
