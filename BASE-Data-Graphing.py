@@ -208,9 +208,9 @@ if not df_master.empty and global_start:
         try:
             # Reconstruct requested figure configuration for download mapping
             if selected_target == "Chlorophyll Growth (450nm)":
-                target_fig = build_precision_graph(df_master, 'Real 450nm', "Comparison: Chlorophyll (450nm)")
+                target_fig = build_precision_graph(df_master, 'Real 450nm', "Chlorophyll Concentration")
             elif selected_target == "Cell Density Growth (750nm)":
-                target_fig = build_precision_graph(df_master, 'Real 750nm', "Comparison: Cell Density (750nm)")
+                target_fig = build_precision_graph(df_master, 'Real 750nm', "Cell Density")
             else:
                 group_name = selected_target.replace("Deep Dive: ", "")
                 target_fig = build_precision_graph(df_master[df_master['Group'] == group_name], ['Real 450nm', 'Real 750nm'], f"Deep Dive: {group_name}", master_data=df_master)
