@@ -199,17 +199,17 @@ if not df_master.empty and global_start:
         st.markdown("### Graph Snapshot Panel")
         
         options_list = [
-            "Chlorophyll Growth (450nm)",
-            "Cell Density Growth (750nm)"
+            "Chlorophyll Concentration",
+            "Cell Density"
         ] + [f"Deep Dive: {g}" for g in GROUPS]
         
         selected_target = st.selectbox("Select graph to snapshot:", options_list)
         
         try:
             # Reconstruct requested figure configuration for download mapping
-            if selected_target == "Chlorophyll Growth (450nm)":
+            if selected_target == "Chlorophyll Concentration":
                 target_fig = build_precision_graph(df_master, 'Real 450nm', "Chlorophyll Concentration")
-            elif selected_target == "Cell Density Growth (750nm)":
+            elif selected_target == "Cell Density":
                 target_fig = build_precision_graph(df_master, 'Real 750nm', "Cell Density")
             else:
                 group_name = selected_target.replace("Deep Dive: ", "")
