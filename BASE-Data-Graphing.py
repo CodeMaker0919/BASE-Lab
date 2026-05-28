@@ -96,7 +96,7 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         plot_data = pd.merge(full_day_range, gdf, on='Day', how='left')
         plot_data['Group'] = group_name
 
-       for col in y_cols:
+        for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
             # 1. GAP LINE (Dashed) - Connects points even across NaNs
