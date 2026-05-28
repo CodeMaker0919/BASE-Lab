@@ -96,36 +96,49 @@ def build_precision_graph(data, y_cols, title, master_data=None):
         plot_data = pd.merge(full_day_range, gdf, on='Day', how='left')
         plot_data['Group'] = group_name
 
-        for col in y_cols:
+       for col in y_cols:
             color = COLORS.get(group_name) if len(y_cols) == 1 else COLORS.get(col)
             
-            # Trend line trace 
+            # 1. GAP LINE (Dashed) - Connects points even across NaNs
+            fig.add_trace(go.Scatter(
+                x=plot_data['Day'], y=plot_data[col], mode='lines',
+                line=dict(color=color, width=2, dash='dot'),
+                connectgaps=True, hoverinfo='skip'
+            ))
+
+            # 2. TREND LINE (Solid) - Breaks at gaps (connectgaps=False)
             fig.add_trace(go.Scatter(
                 x=plot_data['Day'], y=plot_data[col], mode='lines',
                 line=dict(color=color, width=4),
                 connectgaps=False, hoverinfo='skip'
             ))
 
-            # Data markers trace
+            # 3. DATA MARKERS
             fig.add_trace(go.Scatter(
                 x=gdf['Day'], y=gdf[col], mode='markers',
                 marker=dict(color=color, size=10, line=dict(width=2, color="white")),
                 name=f"{group_name} {col}"
             ))
 
+            # --- STATS & ANNOTATION LOGIC ---
             valid = gdf.dropna(subset=[col])
             if not valid.empty:
                 val_start, val_end = valid.iloc[0][col], valid.iloc[-1][col]
                 pct = ((val_end - val_start) / val_start * 100) if val_start != 0 else 0
                 
-                # --- CALCULATE STANDARD DEVIATION ---
-                # This calculates the sample standard deviation for the group's readings across the timeline
+                # Calculate Standard Deviation for the group
                 group_std = valid[col].std()
                 std_text = f"SD: ±{group_std:.3f}" if pd.notna(group_std) else "SD: N/A"
                 
-                # Constructing structural display strings matching labels seen in Screenshot 2026-05-23 at 8.30.59 PM.png
+                # Format the display name (Group name or Column name)
                 display_name = group_name if len(y_cols) == 1 else col
-                annotation_html = f"<b>{display_name}</b><br>{pct:+.0f}% change<br><span style='font-size:11px; opacity:0.8;'>{std_text}</span>"
+                
+                # HTML String for the multi-line label
+                annotation_html = (
+                    f"<b>{display_name}</b><br>"
+                    f"{pct:+.1f}% change<br>"
+                    f"<span style='font-size:11px; opacity:0.8;'>{std_text}</span>"
+                )
                 
                 label_positions.append({
                     'x': valid.iloc[-1]['Day'], 
@@ -133,7 +146,6 @@ def build_precision_graph(data, y_cols, title, master_data=None):
                     'color': color,
                     'text': annotation_html
                 })
-
     # --- Vertical Alignment Optimization Logic ---
     if label_positions:
         label_positions.sort(key=lambda x: x['y'])
